@@ -72,15 +72,26 @@ abstract class PoolArena<T> extends SizeClasses implements PoolArenaMetric {
     // TODO: Test if adding padding helps under contention
     //private long pad0, pad1, pad2, pad3, pad4, pad5, pad6, pad7;
 
+
+    // 构造参数：
+    // 参数一:this，当前allocator
+    // 参数二：内存页大小，咱们定义的是 8192 b
+    // 参数三：pageShifts => 13
+    // 参数四：16mb => 16777216
+    // 参数五：..
     protected PoolArena(PooledByteBufAllocator parent, int pageSize,
           int pageShifts, int chunkSize, int cacheAlignment) {
+
         super(pageSize, pageShifts, chunkSize, cacheAlignment);
         this.parent = parent;
         directMemoryCacheAlignment = cacheAlignment;
         directMemoryCacheAlignmentMask = cacheAlignment - 1;
 
+        // nSubpages 表示 SizeClass中 有多少个 small 类型的class。
+        // 32
         numSmallSubpagePools = nSubpages;
         smallSubpagePools = newSubpagePoolArray(numSmallSubpagePools);
+
         for (int i = 0; i < smallSubpagePools.length; i ++) {
             smallSubpagePools[i] = newSubpagePoolHead();
         }
@@ -130,9 +141,14 @@ abstract class PoolArena<T> extends SizeClasses implements PoolArenaMetric {
     }
 
     private void allocate(PoolThreadCache cache, PooledByteBuf<T> buf, final int reqCapacity) {
+        // 根据你请求的 内存大小，选择一个合适的 size类型。返回的是 这个 size类型 在 表格中的index
         final int sizeIdx = size2SizeIdx(reqCapacity);
-
+        // 条件成立：说明请求的 内存大小，是 小于 small 区间内的 最大 size的，所以按照 small 类型 划分 一块内存。
         if (sizeIdx <= smallMaxSizeIdx) {
+            // 参数一：线程cache
+            // 参数二：buf，分配出来的内存 由 buf 装起来，提供给业务层使用。
+            // 参数三：请求的内存大小
+            // 参数四：类型index，在SizeClasses表格的索引。
             tcacheAllocateSmall(cache, buf, reqCapacity, sizeIdx);
         } else if (sizeIdx < nSizes) {
             tcacheAllocateNormal(cache, buf, reqCapacity, sizeIdx);
@@ -144,9 +160,17 @@ abstract class PoolArena<T> extends SizeClasses implements PoolArenaMetric {
         }
     }
 
+    // 参数一：线程cache
+    // 参数二：buf，分配出来的内存 由 buf 装起来，提供给业务层使用。
+    // 参数三：请求的内存大小
+    // 参数四：类型index，在SizeClasses表格的索引。
     private void tcacheAllocateSmall(PoolThreadCache cache, PooledByteBuf<T> buf, final int reqCapacity,
                                      final int sizeIdx) {
-
+        // 尝试从cache内 分配，看能不能成功，成功的话 就返回。
+        // 参数一：分配给当前线程的 arena
+        // 参数二：buf，分配出来的内存 由 buf 装起来，提供给业务层使用。
+        // 参数三：请求的内存大小
+        // 参数四：类型index，在SizeClasses表格的索引。
         if (cache.allocateSmall(this, buf, reqCapacity, sizeIdx)) {
             // was able to allocate out of the cache so move on
             return;
@@ -156,11 +180,18 @@ abstract class PoolArena<T> extends SizeClasses implements PoolArenaMetric {
          * Synchronize on the head. This is needed as {@link PoolChunk#allocateSubpage(int)} and
          * {@link PoolChunk#free(long)} may modify the doubly linked list as well.
          */
+        // 获取到 指定 sizeClass 的 poolSubpage，这个是 PoolArena 的对象。
+        // 拿到的这个 PoolSubpage 只是一个 head 对象，并没有任何 内存 在这上面管理。
         final PoolSubpage<T> head = smallSubpagePools[sizeIdx];
         final boolean needsNormalAllocation;
         synchronized (head) {
+            // 初始化时，head.next = head.prev =head;
             final PoolSubpage<T> s = head.next;
+            // needsNormalAllocation == true ，说明PoolArena 范围内 这个sizeIdx 的 subpage 也没初始化过..
+            // 反之..已经PoolArena 范围内 这个sizeIdx 的subpage 有分配过。
             needsNormalAllocation = s == head;
+
+            // 条件成立： 已经PoolArena 范围内 这个sizeIdx 的subpage 有分配过。
             if (!needsNormalAllocation) {
                 assert s.doNotDestroy && s.elemSize == sizeIdx2size(sizeIdx);
                 long handle = s.allocate();
@@ -169,8 +200,14 @@ abstract class PoolArena<T> extends SizeClasses implements PoolArenaMetric {
             }
         }
 
+        // 先看 没分配的逻辑。
+        //
         if (needsNormalAllocation) {
             synchronized (this) {
+                // 参数1：封装内存的ByteBuf
+                // 参数2：业务层要拿的内存量
+                // 参数3：sizeClass idx
+                // 参数4：当前线程Cache缓存。
                 allocateNormal(buf, reqCapacity, sizeIdx, cache);
             }
         }
@@ -191,7 +228,12 @@ abstract class PoolArena<T> extends SizeClasses implements PoolArenaMetric {
     }
 
     // Method must be called inside synchronized(this) { ... } block
+    // 参数1：封装内存的ByteBuf
+    // 参数2：业务层要拿的内存量
+    // 参数3：sizeClass idx
+    // 参数4：当前线程Cache缓存。
     private void allocateNormal(PooledByteBuf<T> buf, int reqCapacity, int sizeIdx, PoolThreadCache threadCache) {
+        // 尝试到 q050、q025... 这些PoolChunkList内去获取内存，成功则返回。
         if (q050.allocate(buf, reqCapacity, sizeIdx, threadCache) ||
             q025.allocate(buf, reqCapacity, sizeIdx, threadCache) ||
             q000.allocate(buf, reqCapacity, sizeIdx, threadCache) ||
@@ -542,6 +584,12 @@ abstract class PoolArena<T> extends SizeClasses implements PoolArenaMetric {
 
     static final class HeapArena extends PoolArena<byte[]> {
 
+        // 构造参数：
+        // 参数一:this，当前allocator
+        // 参数二：内存页大小，咱们定义的是 8192 b
+        // 参数三：pageShifts => 13
+        // 参数四：16mb => 16777216
+        // 参数五：..
         HeapArena(PooledByteBufAllocator parent, int pageSize, int pageShifts,
                   int chunkSize, int directMemoryCacheAlignment) {
             super(parent, pageSize, pageShifts, chunkSize,
@@ -617,6 +665,12 @@ abstract class PoolArena<T> extends SizeClasses implements PoolArenaMetric {
         protected PoolChunk<ByteBuffer> newChunk(int pageSize, int maxPageIdx,
             int pageShifts, int chunkSize) {
             if (directMemoryCacheAlignment == 0) {
+                // 参数1：分配给当前线程的 poolArena
+                // 参数2：allocateDirect(chunkSize)  分配一块16mb的直接内存，使用ByteBuffer引用。
+                // 参数3：8k
+                // 参数4：13  => 1 << x == 8192，所以x = 13
+                // 参数5: 16mb
+                // 参数6：maxPageIdx = parent.nPSizes，nPSizes 记录的是表格内 所有 sizeClass 大小 由 多个 “页”组成的 sizeClass个数。
                 return new PoolChunk<ByteBuffer>(this,
                         allocateDirect(chunkSize), pageSize, pageShifts,
                         chunkSize, maxPageIdx, 0);

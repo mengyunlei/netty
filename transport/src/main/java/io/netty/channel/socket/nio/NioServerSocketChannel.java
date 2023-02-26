@@ -72,6 +72,8 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
      * Create a new instance
      */
     public NioServerSocketChannel() {
+        // newSocket(DEFAULT_SELECTOR_PROVIDER) 这个方法 会返回给咱们一个 JDK 层面的 ServerSocketChannel 实例。
+        // Netty它要包装一个　ＪＤＫ　层面的　ServerSocketChannel　实例。
         this(newSocket(DEFAULT_SELECTOR_PROVIDER));
     }
 
@@ -86,7 +88,11 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
      * Create a new instance using the given {@link ServerSocketChannel}.
      */
     public NioServerSocketChannel(ServerSocketChannel channel) {
+        // 参数一：null
+        // 参数二：jdk层面的ServerSocketChannel
+        // 参数三：因为咱们是服务端，所以咱们感兴趣的是 Accept事件，当前服务端Channel最终会注册到 Selector【多路复用器】，所以需要有这个信息。
         super(null, channel, SelectionKey.OP_ACCEPT);
+
         config = new NioServerSocketChannelConfig(this, javaChannel().socket());
     }
 
@@ -144,10 +150,15 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
 
     @Override
     protected int doReadMessages(List<Object> buf) throws Exception {
+        // 参数：JDK层面的ServerSocketChannel
+        // 内部通过 ServerSocketChannel.accept 获取到 客户端 SocketChannel对象。
         SocketChannel ch = SocketUtils.accept(javaChannel());
 
         try {
             if (ch != null) {
+                // 参数1：NioServerSocketChannel
+                // 参数2：原生SocketChannel
+                // new NioSocketChannel 包装成为 Netty层面的 客户端 Channel。
                 buf.add(new NioSocketChannel(this, ch));
                 return 1;
             }

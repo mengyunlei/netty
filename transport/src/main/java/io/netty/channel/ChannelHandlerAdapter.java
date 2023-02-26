@@ -22,7 +22,7 @@ import io.netty.util.internal.InternalThreadLocalMap;
 import java.util.Map;
 
 /**
- * Skeleton implementation of a {@link ChannelHandler}.
+ * Skeleton implementation of a {@link ChannelHandler}.ChannelInboundHandlerAdapter
  */
 public abstract class ChannelHandlerAdapter implements ChannelHandler {
 

@@ -76,11 +76,19 @@ public abstract class AbstractNioChannel extends AbstractChannel {
      * @param ch                the underlying {@link SelectableChannel} on which it operates
      * @param readInterestOp    the ops to set to receive data from the {@link SelectableChannel}
      */
+    // 服务端类型：
+    // 参数一：null
+    // 参数二：jdk层面的ServerSocketChannel
+    // 参数三：因为咱们是服务端，所以咱们感兴趣的是 Accept事件，当前服务端Channel最终会注册到 Selector【多路复用器】，所以需要有这个信息。
+
+
     protected AbstractNioChannel(Channel parent, SelectableChannel ch, int readInterestOp) {
+
         super(parent);
         this.ch = ch;
         this.readInterestOp = readInterestOp;
         try {
+            // 配置当前Channel为 非阻塞状态。
             ch.configureBlocking(false);
         } catch (IOException e) {
             try {
@@ -377,6 +385,10 @@ public abstract class AbstractNioChannel extends AbstractChannel {
         boolean selected = false;
         for (;;) {
             try {
+                // javaChannel() 返回JDK层面的Channel，可能是 ServerSocketChannel / SocketChannel
+                // 参数一：多路复用器 jdk 层面的 实现
+                // 参数二：ops ，当前感兴趣的事件，这里给的0..后面会看到 重写的逻辑。
+                // 参数三：att，附件.通过附件参数，可以拿到 Netty层面的对象，这里可能是  NioServerSocketChannel 也可能是 NioSocketChannel
                 selectionKey = javaChannel().register(eventLoop().unwrappedSelector(), 0, this);
                 return;
             } catch (CancelledKeyException e) {
@@ -431,17 +443,28 @@ public abstract class AbstractNioChannel extends AbstractChannel {
      * but just returns the original {@link ByteBuf}..
      */
     protected final ByteBuf newDirectBuffer(ByteBuf buf) {
+        // 获取当前ByteBuf 可读数据量
         final int readableBytes = buf.readableBytes();
+
         if (readableBytes == 0) {
             ReferenceCountUtil.safeRelease(buf);
             return Unpooled.EMPTY_BUFFER;
         }
 
+        // 执行到这里，说明byteBuf 内还是有 有效数据的。
+
+        // alloc 是一个内存分配器 PooledByteBufAllocator
         final ByteBufAllocator alloc = alloc();
+
+        // 正常情况 该条件都会成立。
         if (alloc.isDirectBufferPooled()) {
+            // 根据可读数据量，使用内存分配器 分配了 一块指定大小的 堆外内存 ByteBuf 对象。
             ByteBuf directBuf = alloc.directBuffer(readableBytes);
+            // 将堆内 ByteBuf 数据 拷贝 到 堆外 ByteBuf 对象。
             directBuf.writeBytes(buf, buf.readerIndex(), readableBytes);
+            // 释放堆内 ByteBuf 占用的内存。
             ReferenceCountUtil.safeRelease(buf);
+            // 返回堆外ByteBuf对象。
             return directBuf;
         }
 

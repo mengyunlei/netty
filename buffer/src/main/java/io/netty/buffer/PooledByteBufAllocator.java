@@ -94,14 +94,19 @@ public class PooledByteBufAllocator extends AbstractByteBufAllocator implements 
          *
          * See https://github.com/netty/netty/issues/3888.
          */
+        // 最少arena个数：cpu * 2 => 8 * 2 => 16 个
         final int defaultMinNumArena = NettyRuntime.availableProcessors() * 2;
+        // 8k << 11 => 16 mb => 16777216 b
         final int defaultChunkSize = DEFAULT_PAGE_SIZE << DEFAULT_MAX_ORDER;
+
+        // 假设就是 16 个。
         DEFAULT_NUM_HEAP_ARENA = Math.max(0,
                 SystemPropertyUtil.getInt(
                         "io.netty.allocator.numHeapArenas",
                         (int) Math.min(
                                 defaultMinNumArena,
                                 runtime.maxMemory() / defaultChunkSize / 2 / 3)));
+        // 假设就是 16 个。
         DEFAULT_NUM_DIRECT_ARENA = Math.max(0,
                 SystemPropertyUtil.getInt(
                         "io.netty.allocator.numDirectArenas",
@@ -264,14 +269,18 @@ public class PooledByteBufAllocator extends AbstractByteBufAllocator implements 
                                   boolean useCacheForAllThreads, int directMemoryCacheAlignment) {
         super(preferDirect);
         threadCache = new PoolThreadLocalCache(useCacheForAllThreads);
+        // 256
         this.smallCacheSize = smallCacheSize;
+        // 64
         this.normalCacheSize = normalCacheSize;
+        // 16mb
         chunkSize = validateAndCalculateChunkSize(pageSize, maxOrder);
 
         checkPositiveOrZero(nHeapArena, "nHeapArena");
         checkPositiveOrZero(nDirectArena, "nDirectArena");
 
         checkPositiveOrZero(directMemoryCacheAlignment, "directMemoryCacheAlignment");
+
         if (directMemoryCacheAlignment > 0 && !isDirectMemoryCacheAlignmentSupported()) {
             throw new IllegalArgumentException("directMemoryCacheAlignment is not supported");
         }
@@ -281,15 +290,25 @@ public class PooledByteBufAllocator extends AbstractByteBufAllocator implements 
                     + directMemoryCacheAlignment + " (expected: power of two)");
         }
 
+        // 13
         int pageShifts = validateAndCalculatePageShifts(pageSize);
 
+        // nHeadArena = 16。
         if (nHeapArena > 0) {
+            // new PoolArena[16] 数组。
             heapArenas = newArenaArray(nHeapArena);
             List<PoolArenaMetric> metrics = new ArrayList<PoolArenaMetric>(heapArenas.length);
             for (int i = 0; i < heapArenas.length; i ++) {
+                // 构造参数：
+                // 参数一:this，当前allocator
+                // 参数二：内存页大小，咱们定义的是 8192 b
+                // 参数三：pageShifts => 13
+                // 参数四：16mb => 16777216
+                // 参数五：..
                 PoolArena.HeapArena arena = new PoolArena.HeapArena(this,
                         pageSize, pageShifts, chunkSize,
                         directMemoryCacheAlignment);
+
                 heapArenas[i] = arena;
                 metrics.add(arena);
             }
@@ -331,6 +350,7 @@ public class PooledByteBufAllocator extends AbstractByteBufAllocator implements 
         }
 
         // Logarithm base 2. At this point we know that pageSize is a power of two.
+        // 0000 0000 0000 0000 0010 0000 0000 0000
         return Integer.SIZE - 1 - Integer.numberOfLeadingZeros(pageSize);
     }
 

@@ -28,15 +28,23 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public class DefaultThreadFactory implements ThreadFactory {
 
+    // 每个DefaultThreadFactory实例 都有自己的poolId
     private static final AtomicInteger poolId = new AtomicInteger();
 
+    // 每个DefaultThreadFactory实例 内部 生成的 线程 都有它自己的 线程ID
     private final AtomicInteger nextId = new AtomicInteger();
+    // 线程名称前缀
     private final String prefix;
+    // 是否是 daemon 线程
     private final boolean daemon;
+    // 线程优先级 默认值是 5
     private final int priority;
     protected final ThreadGroup threadGroup;
 
     public DefaultThreadFactory(Class<?> poolType) {
+        // 参数一：NioEventLoopGroup class
+        // 参数二：非守护线程
+        // 参数三：5
         this(poolType, false, Thread.NORM_PRIORITY);
     }
 
@@ -61,13 +69,15 @@ public class DefaultThreadFactory implements ThreadFactory {
     }
 
     public DefaultThreadFactory(Class<?> poolType, boolean daemon, int priority) {
+
         this(toPoolName(poolType), daemon, priority);
     }
 
     public static String toPoolName(Class<?> poolType) {
         ObjectUtil.checkNotNull(poolType, "poolType");
-
+        // 获取一个不包含 包名 的 className
         String poolName = StringUtil.simpleClassName(poolType);
+
         switch (poolName.length()) {
             case 0:
                 return "unknown";
@@ -75,6 +85,7 @@ public class DefaultThreadFactory implements ThreadFactory {
                 return poolName.toLowerCase(Locale.US);
             default:
                 if (Character.isUpperCase(poolName.charAt(0)) && Character.isLowerCase(poolName.charAt(1))) {
+                    // 将 className 第一个字符 转换成小写 并且返回。
                     return Character.toLowerCase(poolName.charAt(0)) + poolName.substring(1);
                 } else {
                     return poolName;
@@ -97,6 +108,7 @@ public class DefaultThreadFactory implements ThreadFactory {
     }
 
     public DefaultThreadFactory(String poolName, boolean daemon, int priority) {
+
         this(poolName, daemon, priority, System.getSecurityManager() == null ?
                 Thread.currentThread().getThreadGroup() : System.getSecurityManager().getThreadGroup());
     }

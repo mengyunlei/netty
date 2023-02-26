@@ -74,8 +74,11 @@ final class PoolThreadCache {
         if (directArena != null) {
             smallSubPageDirectCaches = createSubPageCaches(
                     smallCacheSize, directArena.numSmallSubpagePools);
-
+            // 24
             numShiftsNormalDirect = log2(directArena.pageSize);
+            // 参数一：64
+            // 参数二：32kb
+            // 参数三：分配给当前线程的 directArena
             normalDirectCaches = createNormalCaches(
                     normalCacheSize, maxCachedBufferCapacity, directArena);
 
@@ -127,10 +130,16 @@ final class PoolThreadCache {
         }
     }
 
+
+    // 参数一：64
+    // 参数二：32kb
+    // 参数三：分配给当前线程的 directArena
     private static <T> MemoryRegionCache<T>[] createNormalCaches(
             int cacheSize, int maxCachedBufferCapacity, PoolArena<T> area) {
         if (cacheSize > 0 && maxCachedBufferCapacity > 0) {
+            // 32kb
             int max = Math.min(area.chunkSize, maxCachedBufferCapacity);
+            // 3
             int arraySize = Math.max(1, log2(max / area.pageSize) + 1);
 
             @SuppressWarnings("unchecked")
@@ -146,13 +155,26 @@ final class PoolThreadCache {
 
     // val > 0
     static int log2(int val) {
+        // 16777216 => 0B 0000 0001 0000 0000 0000 0000 0000 0000
+        // 31 - 7 = 24
         return INTEGER_SIZE_MINUS_ONE - Integer.numberOfLeadingZeros(val);
     }
 
     /**
      * Try to allocate a small buffer out of the cache. Returns {@code true} if successful {@code false} otherwise
      */
+    // 尝试从cache内 分配，看能不能成功，成功的话 就返回。
+    // 参数一：分配给当前线程的 arena
+    // 参数二：buf，分配出来的内存 由 buf 装起来，提供给业务层使用。
+    // 参数三：请求的内存大小
+    // 参数四：类型index，在SizeClasses表格的索引。
     boolean allocateSmall(PoolArena<?> area, PooledByteBuf<?> buf, int reqCapacity, int sizeIdx) {
+        //参数一：分配给当前线程的 arena
+        //参数二：类型index，在SizeClasses表格的索引。
+        // 这个方法 返回一个 MemoryRegionCache 对象。
+        // MemoryRegionCache 对象 用于管理和缓存固定规格的 内存块。
+        // cacheForSmall(area, sizeIdx)
+
         return allocate(cacheForSmall(area, sizeIdx), buf, reqCapacity);
     }
 
@@ -164,6 +186,7 @@ final class PoolThreadCache {
     }
 
     @SuppressWarnings({ "unchecked", "rawtypes" })
+    // MemoryRegionCache 对象 用于管理和缓存固定规格的 内存块。
     private boolean allocate(MemoryRegionCache<?> cache, PooledByteBuf buf, int reqCapacity) {
         if (cache == null) {
             // no cache found so just return false here
@@ -284,6 +307,7 @@ final class PoolThreadCache {
 
     private MemoryRegionCache<?> cacheForSmall(PoolArena<?> area, int sizeIdx) {
         if (area.isDirect()) {
+            // 参数一：小内存缓存 数组
             return cache(smallSubPageDirectCaches, sizeIdx);
         }
         return cache(smallSubPageHeapCaches, sizeIdx);
@@ -300,6 +324,14 @@ final class PoolThreadCache {
         if (cache == null || sizeIdx > cache.length - 1) {
             return null;
         }
+        // 返回数组中 sizeIdx 索引的 桶数据
+        // 根据SizeClasses表格，可以知道，small 或者 normal 类型 具体拥有的 sizeClass 数量。
+        // 这里 数组 和 sizeClass 是一一对应的。
+        // 举个例子： small
+        // smallSubPageDirectCaches[0]  -> 内部存放的 MemoryRegionCache 管理 16b的 内存块。
+        // smallSubPageDirectCaches[1]  -> 内部存放的 MemoryRegionCache 管理 32b的 内存块。
+        // ...依次类推
+        // smallSubPageDirectCaches[31] -> 内部存放的 MemoryRegionCache 管理 8192b（8k）的内存块。
         return cache[sizeIdx];
     }
 

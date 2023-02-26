@@ -201,6 +201,7 @@ final class PoolChunk<T> implements PoolChunkMetric {
         subpages = new PoolSubpage[chunkSize >> pageShifts];
 
         //insert initial run, offset = 0, pages = chunkSize / pageSize
+        // 2048
         int pages = chunkSize >> pageShifts;
         long initHandle = (long) pages << SIZE_SHIFT;
         insertAvailRun(0, pages, initHandle);

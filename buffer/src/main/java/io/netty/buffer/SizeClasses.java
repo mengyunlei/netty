@@ -54,6 +54,9 @@ import static io.netty.buffer.PoolThreadCache.*;
  *   If pageShift = 13, sizeClasses looks like this:
  *
  *   (index, log2Group, log2Delta, nDelta, isMultiPageSize, isSubPage, log2DeltaLookup)
+             // 0, 4, 4, 0, 0, 1, 4
+             // 1, 4, 4, 1, 0, 1, 4
+             // 2, 4, 4, 2, 0, 1, 0
  * <p>
  *   ( 0,     4,        4,         0,       no,             yes,        4)
  *   ( 1,     4,        4,         1,       no,             yes,        4)
@@ -100,12 +103,16 @@ abstract class SizeClasses implements SizeClassesMetric {
         this.pageShifts = pageShifts;
         this.chunkSize = chunkSize;
         this.directMemoryCacheAlignment = directMemoryCacheAlignment;
-
+        // log2(16mb) => 24
+        // 24 + 1 - 4 = 21
         int group = log2(chunkSize) + 1 - LOG2_QUANTUM;
 
         //generate size classes
         //[index, log2Group, log2Delta, nDelta, isMultiPageSize, isSubPage, log2DeltaLookup]
+        // 21 << 2 => 0b ..=> 84
+        // new shot[84][7] 的一个二维数组.
         sizeClasses = new short[group << LOG2_SIZE_CLASS_GROUP][7];
+
         nSizes = sizeClasses();
 
         //generate lookup table
@@ -146,9 +153,11 @@ abstract class SizeClasses implements SizeClassesMetric {
 
         int index = 0;
         int size = 0;
-
+        // 4
         int log2Group = LOG2_QUANTUM;
+        // 4
         int log2Delta = LOG2_QUANTUM;
+        // 4
         int ndeltaLimit = 1 << LOG2_SIZE_CLASS_GROUP;
 
         //First small group, nDelta start at 0.
@@ -185,33 +194,73 @@ abstract class SizeClasses implements SizeClassesMetric {
         if (log2Delta >= pageShifts) {
             isMultiPageSize = yes;
         } else {
+            // 8192
             int pageSize = 1 << pageShifts;
+            // 1 << 4 => 16 + 16 * 0 => 16
+            // 1 << 4 => 16 + 16 * 1 => 32
+            // 1 << 4 => 16 + 16 * 2 => 48
             int size = (1 << log2Group) + (1 << log2Delta) * nDelta;
-
+            // 16、32、48...<8192. / 8192 => 0
+            // 0 * 8192 => 0
+            // 16 == 0 => false
+            // 所以..no 0
             isMultiPageSize = size == size / pageSize * pageSize? yes : no;
         }
 
+        // 0
+        // 0
+        // 1
         int log2Ndelta = nDelta == 0? 0 : log2(nDelta);
 
+        // 1 << 0 => 1
+        // 1 < 0 => false => no
+
+        // 1 << 1 => 2
+        // 2 < 1 => false => no
+
+        // 1 << 2 => 4
+        // 4 < 2 => false => no
         byte remove = 1 << log2Ndelta < nDelta? yes : no;
 
+        // 4 + 0 == 4 ? 5 : 4  => log2Size = 5
+
+        // 4 + 0 == 4 ? 5 : 4 => log2Size = 5
+
+        // 4 + 1 == 4 ? 5 : 4 => log2Size = 4
         int log2Size = log2Delta + log2Ndelta == log2Group? log2Group + 1 : log2Group;
         if (log2Size == log2Group) {
             remove = yes;
         }
+        // remove = no;
+        // remove = no;
+        // remove = yes;
 
+        // yes yes yes
         short isSubpage = log2Size < pageShifts + LOG2_SIZE_CLASS_GROUP? yes : no;
 
+        // 4 4 0
         int log2DeltaLookup = log2Size < LOG2_MAX_LOOKUP_SIZE ||
                               log2Size == LOG2_MAX_LOOKUP_SIZE && remove == no
                 ? log2Delta : no;
 
+
+        // 0, 4, 4, 0, 0, 1, 4
+        // 1, 4, 4, 1, 0, 1, 4
+        // 2, 4, 4, 2, 0, 1, 0
         short[] sz = {
                 (short) index, (short) log2Group, (short) log2Delta,
                 (short) nDelta, isMultiPageSize, isSubpage, (short) log2DeltaLookup
         };
 
+        //[0]:{0, 4, 4, 0, 0, 1, 4}
+        //[1]:{1, 4, 4, 1, 0, 1, 4}
         sizeClasses[index] = sz;
+
+        // 1 << 4 => 16
+        // 0 << 4 => 0 => size is 16
+
+        // 1 << 4 => 16
+        // 1 << 4 => 16 => size is 32
         int size = (1 << log2Group) + (nDelta << log2Delta);
 
         if (sz[PAGESIZE_IDX] == yes) {

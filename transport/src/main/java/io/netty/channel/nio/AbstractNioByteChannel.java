@@ -63,6 +63,9 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
      * @param ch                the underlying {@link SelectableChannel} on which it operates
      */
     protected AbstractNioByteChannel(Channel parent, SelectableChannel ch) {
+        // 参数1：NioServerSocketChannel
+        // 参数2：原生SocketChannel
+        // 参数3：感兴趣的事件类型 read
         super(parent, ch, SelectionKey.OP_READ);
     }
 
@@ -133,22 +136,39 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
 
         @Override
         public final void read() {
+            // 获取客户端Channel # config 对象。
             final ChannelConfig config = config();
             if (shouldBreakReadReady(config)) {
                 clearReadPending();
                 return;
             }
+            // 获取客户端Channel#pipeline
             final ChannelPipeline pipeline = pipeline();
+            // 获取一个缓冲区分配器。PooledByteBufAllocator 只要平台不是 安卓的，获取的 缓冲区 分配器 就是 池化内存管理的缓冲区分配器。
             final ByteBufAllocator allocator = config.getAllocator();
-            final RecvByteBufAllocator.Handle allocHandle = recvBufAllocHandle();
-            allocHandle.reset(config);
 
+            // 控制读循环，以及预测下次创建的ByteBuf容量大小。
+            final RecvByteBufAllocator.Handle allocHandle = recvBufAllocHandle();
+            // 重置..
+            allocHandle.reset(config);
+            // 是对JDK层面 ByteBuffer的增强接口实现。 缓冲区，里面包装着内存，提供给咱 去 读取 Socket 读缓冲区 内的业务数据。
             ByteBuf byteBuf = null;
             boolean close = false;
             try {
                 do {
+                    // 参数： 池化内存管理的缓冲区分配器，它才是真正分配内存的大佬。
+                    // allocHandle 在这里 角色是 ，预测 分配多大内存。
                     byteBuf = allocHandle.allocate(allocator);
+
+
+                    // 读取当前Socket读缓冲区的数据 到 byteBuf 对象。
+                    // doReadBytes(byteBuf) => 返回真实从 SocketChannel 内 读取的数据量。
+
+                    // 更新 缓存区预测分配器 的 最后一次 读取数据量，这个数据 后面分析 allocHandle 它的时候再说。
                     allocHandle.lastBytesRead(doReadBytes(byteBuf));
+
+                    // 1. channel 底层socket读缓冲区 已经完全读取完毕，会返回0
+                    // 2. channel 对端 关闭了... 会返回 -1
                     if (allocHandle.lastBytesRead() <= 0) {
                         // nothing was read. release the buffer.
                         byteBuf.release();
@@ -161,13 +181,18 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
                         break;
                     }
 
+                    // 更新缓存区预测分配器 读取的消息数量。
                     allocHandle.incMessagesRead(1);
                     readPending = false;
+                    // 向客户端pipeline 发起 channelRead 事件，该pipeline 实现了 channelRead 的handler 就可以 进行业务处理。
                     pipeline.fireChannelRead(byteBuf);
                     byteBuf = null;
+
                 } while (allocHandle.continueReading());
 
                 allocHandle.readComplete();
+
+                // 设置客户端 SelectionKey 包含 “read” 标记，表示 selector 需要继续帮当前Channel监听 read 事件。
                 pipeline.fireChannelReadComplete();
 
                 if (close) {

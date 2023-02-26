@@ -39,6 +39,9 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
      * @see AbstractNioChannel#AbstractNioChannel(Channel, SelectableChannel, int)
      */
     protected AbstractNioMessageChannel(Channel parent, SelectableChannel ch, int readInterestOp) {
+        // 参数一：null
+        // 参数二：jdk层面的ServerSocketChannel
+        // 参数三：因为咱们是服务端，所以咱们感兴趣的是 Accept事件，当前服务端Channel最终会注册到 Selector【多路复用器】，所以需要有这个信息。
         super(parent, ch, readInterestOp);
     }
 
@@ -62,38 +65,59 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
         @Override
         public void read() {
             assert eventLoop().inEventLoop();
+            // 服务端Config对象
             final ChannelConfig config = config();
+            // 服务端pipeline
             final ChannelPipeline pipeline = pipeline();
+
+            // 控制读循环，以及预测下次创建的ByteBuf容量大小。
             final RecvByteBufAllocator.Handle allocHandle = unsafe().recvBufAllocHandle();
+            // 重置..
             allocHandle.reset(config);
 
             boolean closed = false;
             Throwable exception = null;
             try {
                 try {
+                    // do...while 读消息循环...
                     do {
+                        // 正常情况，localRead is 1
                         int localRead = doReadMessages(readBuf);
+
                         if (localRead == 0) {
                             break;
                         }
+
+                        // 条件成立：说明当前服务端处于关闭状态..
                         if (localRead < 0) {
                             closed = true;
                             break;
                         }
 
+                        // 更新已读消息数量
                         allocHandle.incMessagesRead(localRead);
+
                     } while (allocHandle.continueReading());
+
                 } catch (Throwable t) {
                     exception = t;
                 }
 
+                // 大概可以猜出来，执行到这里，readBuf 全部都是 客户端Channel对象。
+
                 int size = readBuf.size();
+
                 for (int i = 0; i < size; i ++) {
                     readPending = false;
+                    // 向服务端通道 传播 每个 客户端Channel 对象。
                     pipeline.fireChannelRead(readBuf.get(i));
                 }
+
+                // 清空..
                 readBuf.clear();
+                // 回头聊..
                 allocHandle.readComplete();
+                // 重新设置 selector 上当前Server key，让key 包含 accept ，就是让 selector 继续帮Server监听 accept 类型事件。
                 pipeline.fireChannelReadComplete();
 
                 if (exception != null) {

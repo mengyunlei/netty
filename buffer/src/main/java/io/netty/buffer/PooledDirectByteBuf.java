@@ -47,6 +47,7 @@ final class PooledDirectByteBuf extends PooledByteBuf<ByteBuffer> {
 
     @Override
     protected ByteBuffer newInternalNioBuffer(ByteBuffer memory) {
+        // 复制一个 一模一样的 byteBuffer 对象，这个复制出来的 byteBuffer 对象 与原 对象 指向 同一块 内存空间。
         return memory.duplicate();
     }
 

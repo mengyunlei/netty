@@ -21,11 +21,23 @@ final class DefaultChannelHandlerContext extends AbstractChannelHandlerContext {
 
     private final ChannelHandler handler;
 
+
+    // 参数1：pipeline 外层容器，盛装 CTX（Handler） 的管道容器。
+    // 参数2：executor 事件执行器，一般情况下 这里是 null， 除非 你指定。
+    // 参数3：name
+    // 参数4：handler 业务真正实现的处理器。
     DefaultChannelHandlerContext(
             DefaultChannelPipeline pipeline, EventExecutor executor, String name, ChannelHandler handler) {
+        // 参数1：pipeline 外层容器，盛装 CTX（Handler） 的管道容器。
+        // 参数2：executor 事件执行器，一般情况下 这里是 null， 除非 你指定。
+        // 参数3：name
+        // 参数4：处理器真实的 class
         super(pipeline, executor, name, handler.getClass());
         this.handler = handler;
     }
+
+
+
 
     @Override
     public ChannelHandler handler() {

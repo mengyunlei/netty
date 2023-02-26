@@ -48,7 +48,13 @@ public abstract class MultithreadEventLoopGroup extends MultithreadEventExecutor
     /**
      * @see MultithreadEventExecutorGroup#MultithreadEventExecutorGroup(int, Executor, Object...)
      */
+    //参数一：内部线程数量 0
+    //参数二：执行器 null
+    //参数三：选择器提供器 ，通过这个可以获取到jdk层面的selector实例。args[0] == selectorProvider
+    //参数四：选择器工作策略 DefaultSelectStrategy  args[1] == selectStrategy
+    //参数五：线程池拒绝策略 args[2]
     protected MultithreadEventLoopGroup(int nThreads, Executor executor, Object... args) {
+        // 假设 当前平台为 8 cpu 平台，此时 DEFAULT_EVENT_LOOP_THREADS == 16
         super(nThreads == 0 ? DEFAULT_EVENT_LOOP_THREADS : nThreads, executor, args);
     }
 
@@ -83,6 +89,12 @@ public abstract class MultithreadEventLoopGroup extends MultithreadEventExecutor
 
     @Override
     public ChannelFuture register(Channel channel) {
+        // next() 从当前 group 内选择一个 evenLoop 对象返回。
+        // evenLoop 它是一个 单线程的线程池，并且 它内部有 selector 实例。
+        // 1. 处理evenloop工作队列内部的任务
+        // 2. 处理evenloop内部 selector 上注册的 channel 事件。
+
+        // 参数：channel ，可能是 NioServerSocketChannel 也可能是 客户端 NioSocketChannel.
         return next().register(channel);
     }
 

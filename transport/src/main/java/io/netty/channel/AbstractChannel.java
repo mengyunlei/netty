@@ -70,8 +70,14 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
      */
     protected AbstractChannel(Channel parent) {
         this.parent = parent;
+        // 每个Channel实例 创建一个 ChannelId 对象。
         id = newId();
+        // 当类型是：NioServerSocketChannel ，它的Unsafe 实例是谁？NioMessageUnsafe
+        // 当类型是：NioSocketChannel，它的Unsafe 实例是谁？ NioByteUnsafe
         unsafe = newUnsafe();
+        // 创建出来当前Channel内部的 Pipeline 管道。
+        // 创建出来的这个Pipeline 内部有两个默认的 处理器，分别是 HeadContext 和 TailContext
+        // head<--->tail
         pipeline = newChannelPipeline();
     }
 
@@ -416,6 +422,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
      */
     protected abstract class AbstractUnsafe implements Unsafe {
 
+        // 每个Channel都有一个属于它自己的 unsafe，每个 unsafe 都有一个属于 它自己的 outboundBuffer。
         private volatile ChannelOutboundBuffer outboundBuffer = new ChannelOutboundBuffer(AbstractChannel.this);
         private RecvByteBufAllocator.Handle recvHandle;
         private boolean inFlush0;
@@ -452,22 +459,34 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
         @Override
         public final void register(EventLoop eventLoop, final ChannelPromise promise) {
             ObjectUtil.checkNotNull(eventLoop, "eventLoop");
+            // 防止channel重复注册..
             if (isRegistered()) {
+                // 1. 设置promise结果为 失败..
+                // 2. 回调 监听者，执行失败的逻辑..
                 promise.setFailure(new IllegalStateException("registered to an event loop already"));
                 return;
             }
+
             if (!isCompatible(eventLoop)) {
                 promise.setFailure(
                         new IllegalStateException("incompatible event loop type: " + eventLoop.getClass().getName()));
                 return;
             }
 
+            // AbstractChannel.this 获取到 Channel作用域，这个Channel就是unsafe的外层对象。
+            // AbstractChannel.this => NioServerSocketChannel对象..
+            // 绑定个关系..后续Channel上的 事件 或者 任务 都会依赖当前EventLoop 线程去处理..
             AbstractChannel.this.eventLoop = eventLoop;
 
+            // eventLoop.inEventLoop() 判断当前线程 是不是  当前eventloop 自己 这个线程..
+            // 这样设计目的，就是为了 线程安全
+
+            // 因为咱们 channel 支持 unregistor ...
             if (eventLoop.inEventLoop()) {
                 register0(promise);
             } else {
                 try {
+                    // 将注册的任务 ，提交到了 eventLoop 工作队列内了...带着promise过去的... 异步任务1 名称:register0
                     eventLoop.execute(new Runnable() {
                         @Override
                         public void run() {
@@ -485,6 +504,8 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             }
         }
 
+        // 这个方法 一定是 当前Channel关联的EventLoop线程执行
+        // 参数：promise ，表示注册结果的，外部可以向它 注册监听者...来完成 注册 后的逻辑..
         private void register0(ChannelPromise promise) {
             try {
                 // check if the channel is still open as it could be closed in the mean time when the register
@@ -493,19 +514,36 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                     return;
                 }
                 boolean firstRegistration = neverRegistered;
+                // 注册..
                 doRegister();
+
                 neverRegistered = false;
+                // 表示当前Channel已经注册到 多路复用器了..
                 registered = true;
 
                 // Ensure we call handlerAdded(...) before we actually notify the promise. This is needed as the
                 // user may already fire events through the pipeline in the ChannelFutureListener.
+                // 讲了很多...自己再去看.. 会向当前EventLoop线程队列 提交 任务2
                 pipeline.invokeHandlerAddedIfNeeded();
 
+
+                // 这一步会去回调  注册相关的 promise 上 注册的 那些 Listener，比如 “主线程” 在 regFuture 上 注册的 监听者。
+                // 回调到 doBind0 方法时，会向EventLoop线程队列 提交 任务3
                 safeSetSuccess(promise);
+
+                // 向当前Channel的 Pipeline 发起 注册完成事件，关注的Handler 可以 做一些 事情。
                 pipeline.fireChannelRegistered();
+
                 // Only fire a channelActive if the channel has never been registered. This prevents firing
                 // multiple channel actives if the channel is deregistered and re-registered.
+
+
+                // Channel->NioServerSocketChannel
+                // 咱们在这一步的时候 完成绑定了么？ 绑定操作 一定是 当前 EventLoop线程去做的，当前EventLoop线程 在干吗？
+                // 这一步的时候，绑定一定是 没完成的！
+                // 这一步 isActive() 不成立的。
                 if (isActive()) {
+                    // 客户端 会进来这里！ 服务端Channel不会 走这里。
                     if (firstRegistration) {
                         pipeline.fireChannelActive();
                     } else if (config().isAutoRead()) {
@@ -516,6 +554,8 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                         beginRead();
                     }
                 }
+
+
             } catch (Throwable t) {
                 // Close the channel directly to avoid FD leak.
                 closeForcibly();
@@ -545,8 +585,10 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                         "address (" + localAddress + ") anyway as requested.");
             }
 
+            // 在这一步，还未完成绑定，所以 是 false
             boolean wasActive = isActive();
             try {
+                // 获取到JDK层面的 ServerSocketChannel，并且 使用它 完成 真正的绑定工作。
                 doBind(localAddress);
             } catch (Throwable t) {
                 safeSetFailure(promise, t);
@@ -554,15 +596,24 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 return;
             }
 
+
+            // 条件一：!wasActive  => true
+            // 条件二：因为上面已经完成绑定，所以这里也是true
             if (!wasActive && isActive()) {
+                // 这里，再次向 当前Channel#EventLoop 工作队列 提交了 任务， 任务4
                 invokeLater(new Runnable() {
                     @Override
                     public void run() {
+                        // headContext 会响应 active 事件，如何处理的呢？
+                        // 再次向当前Channel的pipeline 发起 read 事件。
+                        // read 事件，就会修改channel在 selector 上注册的 感兴趣的 事件，为 accept 。
                         pipeline.fireChannelActive();
                     }
                 });
             }
 
+            // promise 这个表示的是 绑定结果，谁在等着绑定结果呢？
+            // 咱们的启动线程，在该promise上执行的 wait 操作，所以，这一步 绑定完成之后，会将其唤醒。
             safeSetSuccess(promise);
         }
 
@@ -852,11 +903,15 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             }
         }
 
+        // 参数1：msg，一般都是ByteBuf对象，当然有其它情况 比如 FileRegion... 不考虑这种情况..
+        // 参数2：promise，业务如果关注 本次 写操作是否成功 或者 失败，可以手动提交一个 跟 msg 相关的 promise，promise 内 可以注册一些 监听者，用于处理
+        // 结果。
         @Override
         public final void write(Object msg, ChannelPromise promise) {
             assertEventLoop();
 
             ChannelOutboundBuffer outboundBuffer = this.outboundBuffer;
+
             if (outboundBuffer == null) {
                 // If the outboundBuffer is null we know the channel was closed and so
                 // need to fail the future right away. If it is not null the handling of the rest
@@ -868,9 +923,14 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 return;
             }
 
+            // 表示 msg 数据大小
             int size;
             try {
+                // msg 一般都是ByteBuf对象，ByteBuf 对象 根据 内存归属 分为 heap 和 direct，如果
+                // ByteBuf 类型是 heap类型的话，这里会将 它转换为 direct 类型。
                 msg = filterOutboundMessage(msg);
+
+                // 获取当前消息 有效数据量大小
                 size = pipeline.estimatorHandle().size(msg);
                 if (size < 0) {
                     size = 0;
@@ -881,19 +941,30 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 return;
             }
 
+
+            // 将ByteBuf数据 加入到 出站缓冲区内。
+            // 参数1：msg，ByteBuf 对象，并且这个ByteBuf管理的内存 归属 是 direct
+            // 参数2：size，数据量大小
+            // 参数3：promise，业务如果关注 本次 写操作是否成功 或者 失败，可以手动提交一个 跟 msg 相关的 promise，promise 内 可以注册一些 监听者，用于处理
+            // 结果。
             outboundBuffer.addMessage(msg, size, promise);
         }
 
         @Override
         public final void flush() {
             assertEventLoop();
-
             ChannelOutboundBuffer outboundBuffer = this.outboundBuffer;
             if (outboundBuffer == null) {
                 return;
             }
 
+
+            // 预准备刷新工作
+            // 将 flushedEntry 指向第一个需要刷新的 entry 节点
+            // 计算出 flushedEntry ---> tailEntry 总共有多少 entry 需要被刷新 ，值记录在 flushed 字段内。
             outboundBuffer.addFlush();
+
+            // 真正刷新工作。
             flush0();
         }
 
@@ -909,6 +980,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 return;
             }
 
+            // 表示当前channel真正执行刷新工作
             inFlush0 = true;
 
             // Mark all pending write requests as failure if the channel is inactive.
@@ -927,6 +999,8 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             }
 
             try {
+                // 正常逻辑，执行这里。
+                // 参数：当前ch的出站缓冲区
                 doWrite(outboundBuffer);
             } catch (Throwable t) {
                 if (t instanceof IOException && config().isAutoClose()) {

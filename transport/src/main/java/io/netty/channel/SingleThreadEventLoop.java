@@ -59,10 +59,23 @@ public abstract class SingleThreadEventLoop extends SingleThreadEventExecutor im
         tailTasks = newTaskQueue(maxPendingTasks);
     }
 
+
+    // 参数一：nioEventLoopGroup
+    // 参数二：ThreadPerTaskExecutor实例，来源是 group 内创建的。
+    // 参数三：addTaskWakesUp ,暂且不管..
+    // 参数四：newTaskQueue(queueFactory) 最终返回了一个 Queue 实例，最大长度是 Integer 最大值。 taskQueue
+    // 参数五：tailTaskQueue，大部分情况用不到...暂不分析了..
+    // 参数六：线程池拒绝策略
     protected SingleThreadEventLoop(EventLoopGroup parent, Executor executor,
                                     boolean addTaskWakesUp, Queue<Runnable> taskQueue, Queue<Runnable> tailTaskQueue,
                                     RejectedExecutionHandler rejectedExecutionHandler) {
+        // 参数一：nioEventLoopGroup
+        // 参数二：ThreadPerTaskExecutor实例，来源是 group 内创建的。
+        // 参数三：addTaskWakesUp ,暂且不管..
+        // 参数四：newTaskQueue(queueFactory) 最终返回了一个 Queue 实例，最大长度是 Integer 最大值。 taskQueue
+        // 参数五：线程池拒绝策略
         super(parent, executor, addTaskWakesUp, taskQueue, rejectedExecutionHandler);
+
         tailTasks = ObjectUtil.checkNotNull(tailTaskQueue, "tailTaskQueue");
     }
 
@@ -78,13 +91,30 @@ public abstract class SingleThreadEventLoop extends SingleThreadEventExecutor im
 
     @Override
     public ChannelFuture register(Channel channel) {
+
+        // new DefaultChannelPromise(channel, this) 类似于 Future的东西，支持添加 监听者，当关联的事件完成后，会主动回调 监听者。
         return register(new DefaultChannelPromise(channel, this));
     }
 
     @Override
     public ChannelFuture register(final ChannelPromise promise) {
         ObjectUtil.checkNotNull(promise, "promise");
+        // 服务端：
+        // promise.channel()  NioServerSocketChannel实例
+        // NioServerSocketChannel.unsafe()  返回的是？NioMessageUnsafe
+        // NioMessageUnsafe.register方法
+        // 参数一：NioEventLoop 单线程 线程池...
+        // 参数二：promise 结果封装..外部可以注册 监听...进行异步操作。
+
+
+        // 客户端:
+        // promise.channel()  NioSocketChannel实例
+        // NioSocketChannel.unsafe()  返回的是？NioByteUnsafe
+        // NioByteUnsafe.register方法
+        // 参数一：NioEventLoop 单线程 线程池...
+        // 参数二：promise 结果封装..外部可以注册 监听...进行异步操作。
         promise.channel().unsafe().register(this, promise);
+
         return promise;
     }
 
