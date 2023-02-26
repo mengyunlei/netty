@@ -486,7 +486,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 register0(promise);
             } else {
                 try {
-                    // 将注册的任务 ，提交到了 eventLoop 工作队列内了...带着promise过去的... 异步任务1 名称:register0
+                    // 将注册的任务 ，提交到了 eventLoop 工作队列内了...带着promise过去的... 异步任务 1 名称:register0
                     eventLoop.execute(new Runnable() {
                         @Override
                         public void run() {
@@ -523,12 +523,12 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
 
                 // Ensure we call handlerAdded(...) before we actually notify the promise. This is needed as the
                 // user may already fire events through the pipeline in the ChannelFutureListener.
-                // 讲了很多...自己再去看.. 会向当前EventLoop线程队列 提交 任务2
+                // 讲了很多...自己再去看.. 会向当前EventLoop线程队列 提交 异步任务 2
                 pipeline.invokeHandlerAddedIfNeeded();
 
 
                 // 这一步会去回调  注册相关的 promise 上 注册的 那些 Listener，比如 “主线程” 在 regFuture 上 注册的 监听者。
-                // 回调到 doBind0 方法时，会向EventLoop线程队列 提交 任务3
+                // 回调到 doBind0 方法时，会向EventLoop线程队列 提交 异步任务 3
                 safeSetSuccess(promise);
 
                 // 向当前Channel的 Pipeline 发起 注册完成事件，关注的Handler 可以 做一些 事情。
@@ -539,7 +539,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
 
 
                 // Channel->NioServerSocketChannel
-                // 咱们在这一步的时候 完成绑定了么？ 绑定操作 一定是 当前 EventLoop线程去做的，当前EventLoop线程 在干吗？
+                // 咱们在这一步的时候 完成绑定了么？ 绑定操作 一定是 当前 EventLoop线程去做的，当前EventLoop线程 在干吗？ 正在register0
                 // 这一步的时候，绑定一定是 没完成的！
                 // 这一步 isActive() 不成立的。
                 if (isActive()) {
@@ -600,7 +600,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             // 条件一：!wasActive  => true
             // 条件二：因为上面已经完成绑定，所以这里也是true
             if (!wasActive && isActive()) {
-                // 这里，再次向 当前Channel#EventLoop 工作队列 提交了 任务， 任务4
+                // 这里，再次向 当前Channel#EventLoop 工作队列 提交了 任务， 任务 4
                 invokeLater(new Runnable() {
                     @Override
                     public void run() {
