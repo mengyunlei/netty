@@ -524,6 +524,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 // Ensure we call handlerAdded(...) before we actually notify the promise. This is needed as the
                 // user may already fire events through the pipeline in the ChannelFutureListener.
                 // 讲了很多...自己再去看.. 会向当前EventLoop线程队列 提交 异步任务 2
+                //添加channelInitialize到pipeLine
                 pipeline.invokeHandlerAddedIfNeeded();
 
 
